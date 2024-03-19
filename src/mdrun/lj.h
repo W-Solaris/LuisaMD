@@ -5,17 +5,17 @@
 
 struct In {
   int nx, ny, nz;
-  md_float t_request;
-  md_float rho;
+  float t_request;
+  float rho;
   int units;
   ForceStyle forcetype;
-  md_float epsilon, sigma;
+  float epsilon, sigma;
   char *datafile;
   int ntimes;
-  md_float dt;
+  float dt;
   int neigh_every;
-  md_float force_cut;
-  md_float neigh_cut;
+  float force_cut;
+  float neigh_cut;
   int thermo_nstat;
 };
 

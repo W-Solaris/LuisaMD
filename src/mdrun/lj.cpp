@@ -1,8 +1,12 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/luisa-compute.h>
 
+#include "atom.h"
+#include "force.h"
+#include "force_lj.h"
 #include "lj.h"
 #include "luisa/core/logging.h"
+#include "neighbor.h"
 #include "stdio.h"
 #include "stdlib.h"
 #include "string.h"
@@ -15,16 +19,16 @@ int input(In &, const char *);
 int main(int argc, char **argv) {
   In in;
   in.datafile = NULL;
-  int num_steps = -1;   // number of timesteps (if -1 use value from lj.in)
-  int system_size = -1; // size of the system (if -1 use value from lj.in)
+  int num_steps = -1;    // number of timesteps (if -1 use value from lj.in)
+  int system_size = -1;  // size of the system (if -1 use value from lj.in)
   int nx = -1;
   int ny = -1;
   int nz = -1;
 
-  int screen_yaml = 0; // print yaml output to screen also
-  int yaml_output = 0; // print yaml output
-  int halfneigh = 1; // 1: use half neighborlist; 0: use full neighborlist; -1:
-                     // use original miniMD version half neighborlist force
+  int screen_yaml = 0;  // print yaml output to screen also
+  int yaml_output = 0;  // print yaml output
+  int halfneigh = 1;  // 1: use half neighborlist; 0: use full neighborlist; -1:
+                      // use original miniMD version half neighborlist force
   int teams = 1;
   char *input_file = NULL;
   int ghost_newton = 1;
@@ -100,8 +104,7 @@ int main(int argc, char **argv) {
     }
 
     if ((strcmp(argv[i], "-f") == 0) || (strcmp(argv[i], "--data_file") == 0)) {
-      if (in.datafile == NULL)
-        in.datafile = new char[1000];
+      if (in.datafile == NULL) in.datafile = new char[1000];
 
       strcpy(in.datafile, argv[++i]);
       continue;
@@ -135,28 +138,34 @@ int main(int argc, char **argv) {
       printf(
           "\t-i / --input_file <string>:   set input file to be used (default: "
           "in.lj.miniMD)\n");
-      printf("\t-n / --nsteps <int>:          set number of timesteps for "
-             "simulation\n");
-      printf("\t-s / --size <int>:            set linear dimension of "
-             "systembox\n");
+      printf(
+          "\t-n / --nsteps <int>:          set number of timesteps for "
+          "simulation\n");
+      printf(
+          "\t-s / --size <int>:            set linear dimension of "
+          "systembox\n");
       printf(
           "\t-nx/-ny/-nz <int>:            set linear dimension of systembox "
           "in x/y/z direction\n");
-      printf("\t-b / --neigh_bins <int>:      set linear dimension of neighbor "
-             "bin grid\n");
+      printf(
+          "\t-b / --neigh_bins <int>:      set linear dimension of neighbor "
+          "bin grid\n");
       printf(
           "\t-u / --units <string>:        set units (lj or metal), see LAMMPS "
           "documentation\n");
-      printf("\t-p / --force <string>:        set interaction model (lj or "
-             "eam)\n");
+      printf(
+          "\t-p / --force <string>:        set interaction model (lj or "
+          "eam)\n");
       printf(
           "\t-f / --data_file <string>:    read configuration from LAMMPS data "
           "file\n");
-      printf("\t--ntypes <int>:               set number of atom types for "
-             "simulation (default 8)\n");
+      printf(
+          "\t--ntypes <int>:               set number of atom types for "
+          "simulation (default 8)\n");
 
-      printf("\t--sort <n>:                   resort atoms (simple bins) every "
-             "<n> steps (default: use reneigh frequency; never=0)");
+      printf(
+          "\t--sort <n>:                   resort atoms (simple bins) every "
+          "<n> steps (default: use reneigh frequency; never=0)");
       printf(
           "\t-o / --yaml_output <int>:     level of yaml output (default 1)\n");
       printf(
@@ -166,50 +175,49 @@ int main(int argc, char **argv) {
 
       exit(0);
     }
-
-    Atom atom(ntypes);
-    Neighbor neighbor(ntypes);
-    Integrate integrate;
-    Thermo thermo;
-    Timer timer;
-
-    Force *force;
-
-    if (in.forcetype == FORCELJ)
-      force = (Force *)new ForceLJ(ntypes);
-
-    if (in.forcetype == FORCELJ) {
-      Buffer<float> d_epsilon = device.create_buffer<float>(ntypes * ntypes);
-      std::vector<float> h_epsilon(ntypes * ntypes);
-      force->epsilon = d_epsilon;
-      force->epsilon_scalar = in.epsilon;
-
-      Buffer<float> d_sigma6 = device.create_buffer<float>(ntypes * ntypes);
-      std::vector<float> h_sigma6(ntypes * ntypes);
-      force->sigma6 = d_sigma6;
-
-      Buffer<float> d_sigma = device.create_buffer<float>(ntypes * ntypes);
-      std::vector<float> h_sigma(ntypes * ntypes);
-      force->sigma = d_sigma;
-      force->sigma_scalar = in.sigma;
-
-      for (int i = 0; i < ntypes * ntypes; i++) {
-        h_epsilon[i] = in.epsilon;
-        h_sigma[i] = in.sigma;
-        h_sigma6[i] =
-            in.sigma * in.sigma * in.sigma * in.sigma * in.sigma * in.sigma;
-        if (i < MAX_STACK_TYPES * MAX_STACK_TYPES) {
-          force->epsilon_s[i] = h_epsilon[i];
-          force->sigma6_s[i] = h_sigma6[i];
-        }
-      }
-      Kokkos::deep_copy(d_epsilon, h_epsilon);
-      Kokkos::deep_copy(d_sigma6, h_sigma6);
-      Kokkos::deep_copy(d_sigma, h_sigma);
-    }
   }
 
   Context context{argv[0]};
   Device device = context.create_device("cuda");
   Stream stream = device.create_stream(StreamTag::COMPUTE);
+
+  Atom atom(device, ntypes);
+  Neighbor neighbor(device, ntypes);
+  Integrate integrate;
+  Thermo thermo;
+  Timer timer;
+
+  Force *force;
+
+  if (in.forcetype == FORCELJ) force = (Force *)new ForceLJ(ntypes);
+
+  if (in.forcetype == FORCELJ) {
+    Buffer<float> d_epsilon = device.create_buffer<float>(ntypes * ntypes);
+    std::vector<float> h_epsilon(ntypes * ntypes);
+    force->epsilon = d_epsilon;
+    force->epsilon_scalar = in.epsilon;
+
+    Buffer<float> d_sigma6 = device.create_buffer<float>(ntypes * ntypes);
+    std::vector<float> h_sigma6(ntypes * ntypes);
+    force->sigma6 = d_sigma6;
+
+    Buffer<float> d_sigma = device.create_buffer<float>(ntypes * ntypes);
+    std::vector<float> h_sigma(ntypes * ntypes);
+    force->sigma = d_sigma;
+    force->sigma_scalar = in.sigma;
+
+    for (int i = 0; i < ntypes * ntypes; i++) {
+      h_epsilon[i] = in.epsilon;
+      h_sigma[i] = in.sigma;
+      h_sigma6[i] =
+          in.sigma * in.sigma * in.sigma * in.sigma * in.sigma * in.sigma;
+      if (i < MAX_STACK_TYPES * MAX_STACK_TYPES) {
+        force->epsilon_s[i] = h_epsilon[i];
+        force->sigma6_s[i] = h_sigma6[i];
+      }
+    }
+    Kokkos::deep_copy(d_epsilon, h_epsilon);
+    Kokkos::deep_copy(d_sigma6, h_sigma6);
+    Kokkos::deep_copy(d_sigma, h_sigma);
+  }
 }

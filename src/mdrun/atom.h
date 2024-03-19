@@ -10,14 +10,14 @@ using namespace luisa::compute;
 
 class Neighbor;
 struct Box {
-  md_float xprd, yprd, zprd;
-  md_float xlo, xhi;
-  md_float ylo, yhi;
-  md_float zlo, zhi;
+  float xlen, ylen, zlen;
+  float xlo, xhi;
+  float ylo, yhi;
+  float zlo, zhi;
 };
 
 class Atom {
-public:
+ public:
   typedef int value_type;
   int natoms;
   int nlocal, nghost;
@@ -26,26 +26,40 @@ public:
   Buffer<float3> x;
   Buffer<float3> v;
   Buffer<float3> f;
-  std::vector<float3> h_x;
-  std::vector<float3> h_v;
-  std::vector<float3> h_f;
+  luisa::vector<float3> h_x;
+  luisa::vector<float3> h_v;
 
   int ntypes;
-  Buffer<int> type, new_type, old_type;
+  Buffer<int> type;
+  // Buffer<int> new_type, old_type;
   std::vector<int> h_type;
 
-  Buffer<float3> xold, new_x, new_v, old_x, old_v;
+  Buffer<float3> xold;
+  // Buffer<float3> new_x, new_v, old_x, old_v;
 
-  md_float virial, mass;
+  float virial, mass;
 
-  int comm_size, reverse_size, border_size;
+  // int comm_size, reverse_size, border_size;
 
   Box box;
 
-  Atom(int ntypes_);
+  Atom(){};
+  Atom(Device& device, int ntypes_);
   ~Atom();
+  void operator=(const Atom& src) {
+    // TODO
+    natoms = src.natoms;
+    nlocal = src.nlocal;
+    nghost = src.nghost;
+    nmax = src.nmax;
 
-  void addatom(md_float, md_float, md_float, md_float, md_float, md_float);
+    box = src.box;
+  }
+
+  void addatom(float, float, float, float, float, float);
+  void construct_buf(Stream& stream, Device& device);
+  void pbc(Stream& stream, Device& device);
+  void sort(Neighbor& neighbor);
 
   // private:
   //   int_1d_view_type binpos;
@@ -73,22 +87,22 @@ public:
 
 // void Atom::operator()(TagAtomPBC, const int &i) const {
 //   if (x(i, 0) < 0.0)
-//     x(i, 0) += box.xprd;
+//     x(i, 0) += box.xlen;
 
-//   if (x(i, 0) >= box.xprd)
-//     x(i, 0) -= box.xprd;
+//   if (x(i, 0) >= box.xlen)
+//     x(i, 0) -= box.xlen;
 
 //   if (x(i, 1) < 0.0)
-//     x(i, 1) += box.yprd;
+//     x(i, 1) += box.ylen;
 
-//   if (x(i, 1) >= box.yprd)
-//     x(i, 1) -= box.yprd;
+//   if (x(i, 1) >= box.ylen)
+//     x(i, 1) -= box.ylen;
 
 //   if (x(i, 2) < 0.0)
-//     x(i, 2) += box.zprd;
+//     x(i, 2) += box.zlen;
 
-//   if (x(i, 2) >= box.zprd)
-//     x(i, 2) -= box.zprd;
+//   if (x(i, 2) >= box.zlen)
+//     x(i, 2) -= box.zlen;
 // }
 
 // void Atom::operator()(TagAtomSort, const int &i, int &sum, bool final) const

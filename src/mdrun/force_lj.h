@@ -8,28 +8,9 @@
 
 class ForceLJ : Force {
  public:
-  template <int EVFLAG, int GHOST_NEWTON, int STACK_PARAMS>
-  struct TagComputeHalfNeighThread {
-    enum { evflag = EVFLAG };
-    enum { ghost_newton = GHOST_NEWTON };
-    enum { stack_params = STACK_PARAMS };
-  };
-  template <int EVFLAG, int STACK_PARAMS>
-  struct TagComputeFullNeigh {
-    enum { evflag = EVFLAG };
-    enum { stack_params = STACK_PARAMS };
-  };
-
-  ForceLJ(int ntypes_);
+  ForceLJ(Stream &stream, Device &device, In &in, int ntypes_);
   virtual ~ForceLJ();
-  void setup();
-  void compute(Atom &, Neighbor &, int);
-
- protected:
-  template <int EVFLAG>
-  void compute_original(Atom &, Neighbor &, int);
-
- public:
+  void compute(Atom &, Neighbor &);
 };
 
 #endif

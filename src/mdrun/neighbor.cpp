@@ -1,12 +1,11 @@
+#include "neighbor.h"
 #include "stdio.h"
 #include "stdlib.h"
-
-#include "neighbor.h"
 
 #define FACTOR 0.999
 #define SMALL 1.0e-6
 
-Neighbor::Neighbor(Device device, int ntypes_) {
+Neighbor::Neighbor(Device &device, int ntypes_) {
   ncalls = 0;
   ntypes = ntypes_;
   max_totalneigh = 0;
@@ -25,7 +24,7 @@ Neighbor::Neighbor(Device device, int ntypes_) {
 
 Neighbor::~Neighbor() {}
 
-void Neighbor::build(Stream &stream, Device device, Atom &atom) {
+void Neighbor::build(Stream &stream, Device &device, Atom &atom) {
   ncalls++;
   nlocal = atom.nlocal;
   const int nall = atom.nlocal + atom.nghost;
@@ -35,6 +34,7 @@ void Neighbor::build(Stream &stream, Device device, Atom &atom) {
     nmax = nall;
 
     numneigh = device.create_buffer<int>(nmax);
+    maxneighs = nlocal;  // only used for no bins: all atoms as neighbors
     neighbors = device.create_image<int>(PixelStorage::BYTE4,
                                          make_uint2(nmax, maxneighs));
   }
@@ -52,7 +52,6 @@ void Neighbor::build(Stream &stream, Device device, Atom &atom) {
     UInt n = 0;
 
     $for(j, nlocal) {
-
       Float delx = xtmp - atom.x->read(j)[0];
       Float dely = xtmp - atom.x->read(j)[1];
       Float delz = xtmp - atom.x->read(j)[2];
@@ -77,10 +76,9 @@ void Neighbor::build(Stream &stream, Device device, Atom &atom) {
   stream << neighbor_init().dispatch(nlocal) << synchronize();
 }
 
-int Neighbor::setup(Stream &stream, Device device, Atom &atom) {
-
+int Neighbor::setup(Stream &stream, Device &device, Atom &atom) {
   int i, j, k, nmax;
-  md_float coord;
+  float coord;
   int mbinxhi, mbinyhi, mbinzhi;
   std::vector<float> h_cutneighsq(ntypes * ntypes);
 
@@ -92,7 +90,18 @@ int Neighbor::setup(Stream &stream, Device device, Atom &atom) {
 
   stream << cutneighsq.copy_from(h_cutneighsq.data());
 
-  xprd = atom.box.xprd;
-  yprd = atom.box.yprd;
-  zprd = atom.box.zprd;
+  xprd = atom.box.xlen;
+  yprd = atom.box.ylen;
+  zprd = atom.box.zlen;
+
+  // TODO: bins implementation
+  // buffers initialized
+  mbins = 1;
+  atoms_per_bin = 1;
+  bincount = device.create_buffer<int>(mbins);
+  bin_has_local = device.create_buffer<int>(mbins);
+  bin_list = device.create_buffer<int>(mbins);
+  bins = device.create_image<int>(PixelStorage::BYTE4, mbins, atoms_per_bin);
+
+  return 0;
 }

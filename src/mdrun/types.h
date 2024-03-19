@@ -1,7 +1,7 @@
 #ifndef TYPES_H
 #define TYPES_H
 
-typedef float md_float;
+// typedef md_float float;
 enum ForceStyle { FORCEEAM, FORCELJ };
 #ifndef MAX_STACK_TYPES
 #define MAX_STACK_TYPES 3
