@@ -2,10 +2,6 @@
 #include "math.h"
 #include "stdio.h"
 
-#ifndef VECTORLENGTH
-#define VECTORLENGTH 4
-#endif
-
 ForceLJ::ForceLJ(Stream &stream, Device &device, In &in, int ntypes_) {
   eng_vdwl = device.create_buffer<float>(1);
   virial = device.create_buffer<float>(1);
@@ -26,31 +22,46 @@ ForceLJ::ForceLJ(Stream &stream, Device &device, In &in, int ntypes_) {
   sigma = device.create_buffer<float>(ntypes * ntypes);
   std::vector<float> h_sigma(ntypes * ntypes);
 
+  epsilon_scalar = in.epsilon;
+  sigma_scalar = in.sigma;
+
   for (int i = 0; i < ntypes * ntypes; i++) {
     h_cut[i] = cutforce * cutforce;
-    if (i < MAX_STACK_TYPES * MAX_STACK_TYPES)
-      cutforcesq_s[i] = cutforce * cutforce;
+    // if (i < MAX_STACK_TYPES * MAX_STACK_TYPES)
+    //   cutforcesq_s[i] = cutforce * cutforce;
     h_epsilon[i] = in.epsilon;
     h_sigma[i] = in.sigma;
     h_sigma6[i] =
         in.sigma * in.sigma * in.sigma * in.sigma * in.sigma * in.sigma;
 
-    if (i < MAX_STACK_TYPES * MAX_STACK_TYPES) {
-      epsilon_s[i] = h_epsilon[i];
-      sigma6_s[i] = h_sigma6[i];
-    }
+    // // TODO: epsilon_s should be GPU buffer!
+    // if (i < MAX_STACK_TYPES * MAX_STACK_TYPES) {
+    //   epsilon_s[i] = h_epsilon[i];
+    //   sigma6_s[i] = h_sigma6[i];
+    // }
   }
+
+  // move to GPU
+  stream << cutforcesq.copy_from(h_cut.data());
+  stream << epsilon.copy_from(h_epsilon.data());
+  stream << sigma.copy_from(h_sigma.data());
+  stream << sigma6.copy_from(h_sigma6.data());
 }
 
-void ForceLJ::compute(Atom &atom, Neighbor &neighbor) {
+// void ForceLJ::setup(Stream &stream, Device &device) {
+void ForceLJ::setup() {
+  // pass
+}
+
+void ForceLJ::compute(Stream &stream, Device &device, Atom &atom,
+                      Neighbor &neighbor) {
   nlocal = atom.nlocal;
   nall = atom.nlocal + atom.nghost;
 
-  // x = atom.x;
-  // f_a = atom.f;
-  // f = atom.f;
-  // type = atom.type;
   Kernel1D compute_lj_kernel = [&]() noexcept {
+    eng_vdwl->write(0, 0.f);
+    virial->write(0, 0.f);
+
     auto i = dispatch_x();
     auto jnum = neighbor.numneigh->read(i);
     Float xtmp = atom.x->read(i)[0];
@@ -92,4 +103,6 @@ void ForceLJ::compute(Atom &atom, Neighbor &neighbor) {
       };
     };
   };
+  auto initial_integrate = device.compile(compute_lj_kernel);
+  stream << initial_integrate().dispatch(nlocal) << synchronize();
 }

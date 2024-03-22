@@ -11,7 +11,7 @@ using namespace luisa;
 using namespace luisa::compute;
 
 class Force {
- public:
+public:
   float cutforce;
   Buffer<float> cutforcesq;
   Buffer<float> eng_vdwl;
@@ -22,25 +22,23 @@ class Force {
 
   Force(){};
   virtual ~Force(){};
-  // virtual void setup(){}; // no need
+  virtual void setup(){};
   virtual void finalise(){};
-  virtual void compute(Atom &, Neighbor &, int){};
+  virtual void compute(Stream &stream, Device &device, Atom &, Neighbor &){};
 
-  Buffer<float> epsilon, sigma6, sigma;  // Parameters for LJ only
+  int use_sse;
+  Buffer<float> epsilon, sigma6, sigma; // Parameters for LJ only
   float epsilon_scalar, sigma_scalar;
 
   ForceStyle style;
 
-  float cutforcesq_s[MAX_STACK_TYPES * MAX_STACK_TYPES];
-  float epsilon_s[MAX_STACK_TYPES * MAX_STACK_TYPES];
-  float sigma6_s[MAX_STACK_TYPES * MAX_STACK_TYPES];
+  // float cutforcesq_s[MAX_STACK_TYPES * MAX_STACK_TYPES];
+  // float epsilon_s[MAX_STACK_TYPES * MAX_STACK_TYPES];
+  // float sigma6_s[MAX_STACK_TYPES * MAX_STACK_TYPES];
 
- protected:
+protected:
   int nlocal;
   int nall;
-
-  // Buffer<int> numneigh;  // # of neighbors for each atom
-  // Image<int> neighbors;  // array of neighbors of each atom
 
   Buffer<float3> xf;
   Buffer<float3> f;

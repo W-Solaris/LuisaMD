@@ -1,0 +1,2 @@
+#define VARIANT_REFERENCE
+#define VARIANT_STRING "LuisaMD"

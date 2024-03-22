@@ -30,7 +30,7 @@ void Atom::addatom(float x_in, float y_in, float z_in, float vx_in, float vy_in,
   // store at vector, copy to buffer later
   h_x.push_back(make_float3(x_in, y_in, z_in));
   h_v.push_back(make_float3(vx_in, vy_in, vz_in));
-  h_type[nlocal] = rand() % ntypes;
+  h_type.push_back(rand() % ntypes);
   nlocal++;
 }
 
@@ -42,6 +42,7 @@ void Atom::construct_buf(Stream &stream, Device &device) {
   xold = device.create_buffer<float3>(nlocal);
   stream << x.copy_from(h_x.data());
   stream << v.copy_from(h_v.data());
+  stream << type.copy_from(h_type.data());
 }
 
 /* enforce PBC
@@ -67,6 +68,7 @@ void Atom::pbc(Stream &stream, Device &device) {
 /* realloc a 2-d float array */
 
 void Atom::sort(Neighbor &neighbor) {
+  return;
   // WIP!!
   // neighbor.binatoms(*this, nlocal);
 

@@ -7,10 +7,12 @@
 #include "types.h"
 
 class ForceLJ : Force {
- public:
+public:
   ForceLJ(Stream &stream, Device &device, In &in, int ntypes_);
   virtual ~ForceLJ();
-  void compute(Atom &, Neighbor &);
+  void setup();
+  // void setup(Stream &stream, Device &device);
+  void compute(Stream &stream, Device &device, Atom &, Neighbor &);
 };
 
 #endif
