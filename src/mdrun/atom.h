@@ -20,8 +20,10 @@ class Atom {
  public:
   typedef int value_type;
   int natoms;
-  int nlocal, nghost;
+  int nlocal;
   int nmax;
+
+  Buffer<int> nghost;
 
   Buffer<float3> x;
   Buffer<float3> v;
@@ -42,24 +44,19 @@ class Atom {
   // int comm_size, reverse_size, border_size;
 
   Box box;
+  Shader<1> apply_pbc;
+  Shader<1> apply_border;
 
   Atom(){};
-  Atom(Device& device, int ntypes_);
+  Atom(Device &device, int ntypes_);
   ~Atom();
-  void operator=(const Atom& src) {
-    // TODO
-    natoms = src.natoms;
-    nlocal = src.nlocal;
-    nghost = src.nghost;
-    nmax = src.nmax;
-
-    box = src.box;
-  }
 
   void addatom(float, float, float, float, float, float);
-  void construct_buf(Stream& stream, Device& device);
-  void pbc(Stream& stream, Device& device);
-  void sort(Neighbor& neighbor);
+  void construct_buf(Stream &stream, Device &device);
+  void setup_shader(Device &device);
+  void pbc(Stream &stream);
+  void border(Stream &stream);
+  void sort(Neighbor &neighbor);
 
   // private:
   //   int_1d_view_type binpos;

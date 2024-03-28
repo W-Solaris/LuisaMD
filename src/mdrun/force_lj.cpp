@@ -1,4 +1,5 @@
 #include "force_lj.h"
+#include "luisa/dsl/builtin.h"
 #include "math.h"
 #include "stdio.h"
 
@@ -48,61 +49,122 @@ ForceLJ::ForceLJ(Stream &stream, Device &device, In &in, int ntypes_) {
   stream << sigma6.copy_from(h_sigma6.data());
 }
 
-// void ForceLJ::setup(Stream &stream, Device &device) {
-void ForceLJ::setup() {
-  // pass
+ForceLJ::~ForceLJ() {}
+
+void ForceLJ::setup(Stream &stream, Device &device, Atom &atom) {
+  f = device.create_buffer<float3>(atom.nlocal);
+  f_delta = device.create_buffer<float3>(atom.nlocal);
+  eng_vdwl_buf = device.create_buffer<float>(atom.nlocal);
+  virial_buf = device.create_buffer<float>(atom.nlocal);
 }
 
-void ForceLJ::compute(Stream &stream, Device &device, Atom &atom,
-                      Neighbor &neighbor) {
+void ForceLJ::setup_shader(Device &device, Atom &atom, Neighbor &neighbor) {
   nlocal = atom.nlocal;
-  nall = atom.nlocal + atom.nghost;
-
   Kernel1D compute_lj_kernel = [&]() noexcept {
-    eng_vdwl->write(0, 0.f);
-    virial->write(0, 0.f);
-
     auto i = dispatch_x();
+    Float3 f_ = make_float3(0.f);
+
     auto jnum = neighbor.numneigh->read(i);
-    Float xtmp = atom.x->read(i)[0];
-    Float ytmp = atom.x->read(i)[1];
-    Float ztmp = atom.x->read(i)[2];
+    Float3 tmpi = atom.x->read(i);
+    Float xtmp = tmpi[0];
+    Float ytmp = tmpi[1];
+    Float ztmp = tmpi[2];
     Int type_i = atom.type->read(i);
 
+    Float test = 0.f;
+    Float eng_vdwl_ = 0.f;
+    Float virial_ = 0.f;
+    Int target = 2000;
+    // Int target = 24;
+    Int coord = 4690;
+    Int min = 0;
+    Float min_r = 100.f;
+    $if(i == target) {
+      device_log("x: {} ", xtmp);
+      device_log("y: {} ", ytmp);
+      device_log("z: {} ", ztmp);
+    };
     $for(k, jnum) {
-      Int j = neighbor.neighbors->read(make_uint2(i, k.cast<uint>()));
-      Float delx = xtmp - atom.x->read(j)[0];
-      Float dely = ytmp - atom.x->read(j)[1];
-      Float delz = ztmp - atom.x->read(j)[2];
+      Int j = neighbor.neighbors->read(make_uint2(i, k.cast<uint>()))[0];
+      Float3 tmpj = atom.x->read(j);
+      Float delx = xtmp - tmpj[0];
+      Float dely = ytmp - tmpj[1];
+      Float delz = ztmp - tmpj[2];
       Int type_j = atom.type->read(j);
-
       Float rsq = delx * delx + dely * dely + delz * delz;
+      // $if(rsq < 0.8f) { device_log("too small rsq of {}", rsq); };
 
       Int type_ij = type_i * ntypes + type_j;
 
+      // $if(i == target & j == coord) {
+      //   device_log("x: {} and {}", xtmp, tmpj[0]);
+      //   device_log("y: {} and {}", ytmp, tmpj[1]);
+      //   device_log("z: {} and {}", ztmp, tmpj[2]);
+      //   device_log("rsq {} : ", rsq);
+      // };
+
+      // $if(i == target) {
+      //   device_log("to {}, rsq: {}", j, rsq);
+      //   //   device_log("cut: {}", cutforcesq->read(type_ij));
+      // };
+
       $if(rsq < cutforcesq->read(type_ij)) {
+        $if(rsq < min_r) {
+          min_r = rsq;
+          min = j;
+        };
         Float sr2 = 1.0f / rsq;
         Float sr6 = sr2 * sr2 * sr2 * sigma6->read(type_ij);
-        Float force = 48.0f * sr6 * (sr6 - 0.5f) * sr2 * epsilon->read(type_ij);
-        Float3 tmp = f->read(i);
-        tmp[0] += delx * force;
-        tmp[1] += dely * force;
-        tmp[2] += delz * force;
-        f->write(i, tmp);
-        tmp = f->read(j);
-        tmp[0] -= delx * force;
-        tmp[1] -= dely * force;
-        tmp[2] -= delz * force;
-        f->write(j, tmp);
+        Float force =
+            48.0f * pow(1.f / (delx * delx + dely * dely + delz * delz), 3.f) *
+            (pow(1.f / (delx * delx + dely * dely + delz * delz), 3.f) - 0.5f) *
+            1.f / (delx * delx + dely * dely + delz * delz) *
+            epsilon->read(type_ij);
+
+        f_[0] += delx * force;
+        f_[1] += dely * force;
+        f_[2] += delz * force;
+        // $if(i == target) {
+        // $if(i == target & j == coord) {
+        //   device_log("force with {} : ({},{},{})", j, delx * force,
+        //              dely * force, delz * force);
+        // };
 
         if (evflag) {
-          eng_vdwl->write(0,
-                          (4.0f * sr6 * (sr6 - 1.0f)) * epsilon->read(type_ij));
-          virial->write(0, (delx * delx + dely * dely + delz * delz) * force);
+          eng_vdwl_ += (4.0f * sr6 * (sr6 - 1.0f)) * epsilon->read(type_ij);
+          virial_ += (delx * delx + dely * dely + delz * delz) * force;
         }
       };
     };
+    eng_vdwl_buf->write(i, eng_vdwl_);
+    virial_buf->write(i, virial_);
+
+    $if(i == target) {
+      //   device_log("min: {}", min);
+      //   device_log("min_rsq: {}", min_r);
+      device_log("force: ({},{},{})", f_[0], f_[1], f_[2]);
+    };
+    f->write(i, f_);
   };
-  auto initial_integrate = device.compile(compute_lj_kernel);
-  stream << initial_integrate().dispatch(nlocal) << synchronize();
+
+  Kernel1D gather_ev_kernel = [&]() noexcept {
+    Float eng_vdwl_ = 0.f;
+    Float virial_ = 0.f;
+    $for(i, atom.nlocal) {
+      eng_vdwl_ += eng_vdwl_buf->read(i);
+      virial_ += virial_buf->read(i);
+    };
+    eng_vdwl->write(0, eng_vdwl_);
+    virial->write(0, virial_);
+  };
+
+  auto o = luisa::compute::ShaderOption{.enable_fast_math = false};
+  compute_shader = device.compile(compute_lj_kernel, o);
+  gather_ev_shader = device.compile(gather_ev_kernel, o);
+}
+void ForceLJ::compute(Stream &stream) {
+  stream << compute_shader().dispatch(nlocal) << synchronize();
+  // if (evflag) {
+  stream << gather_ev_shader().dispatch(1) << synchronize();
+  // }
 }

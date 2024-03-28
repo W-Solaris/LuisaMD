@@ -10,7 +10,6 @@
 Atom::Atom(Device &device, int ntypes_) {
   natoms = 0;
   nlocal = 0;
-  nghost = 0;
   nmax = 0;
   copy_size = 0;
 
@@ -35,7 +34,10 @@ void Atom::addatom(float x_in, float y_in, float z_in, float vx_in, float vy_in,
 }
 
 void Atom::construct_buf(Stream &stream, Device &device) {
-  x = device.create_buffer<float3>(nlocal);
+  int max_len = 7 * nlocal;
+  // to save ghost atoms : 3 dimensions * 2 directions
+  nghost = device.create_buffer<int>(1);
+  x = device.create_buffer<float3>(max_len);
   v = device.create_buffer<float3>(nlocal);
   f = device.create_buffer<float3>(nlocal);
   type = device.create_buffer<int>(nlocal);
@@ -49,7 +51,7 @@ void Atom::construct_buf(Stream &stream, Device &device) {
    order of 2 tests is important to insure lo-bound <= coord < hi-bound
    even with round-off errors where (coord +/- epsilon) +/- period = bound */
 
-void Atom::pbc(Stream &stream, Device &device) {
+void Atom::setup_shader(Device &device) {
   Kernel1D apply_pbc_kernel = [&]() noexcept {
     auto i = dispatch_x();
     Float3 x_ = x->read(i);
@@ -61,7 +63,10 @@ void Atom::pbc(Stream &stream, Device &device) {
     $if(x_[2] >= box.zlen) { x_[2] -= box.zlen; };
     x->write(i, x_);
   };
-  auto apply_pbc = device.compile(apply_pbc_kernel);
+  apply_pbc = device.compile(apply_pbc_kernel);
+}
+
+void Atom::pbc(Stream &stream) {
   stream << apply_pbc().dispatch(nlocal) << synchronize();
 }
 

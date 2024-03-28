@@ -3,20 +3,20 @@
 
 #include "atom.h"
 class Neighbor {
- public:
+public:
   typedef int value_type;
 
-  int every;                 // re-neighbor every this often
-  int nbinx, nbiny, nbinz;   // # of global bins
-  float cutneigh;            // neighbor cutoff
-  Buffer<float> cutneighsq;  // neighbor cutoff squared
+  int every;                // re-neighbor every this often
+  int nbinx, nbiny, nbinz;  // # of global bins
+  float cutneigh;           // neighbor cutoff
+  Buffer<float> cutneighsq; // neighbor cutoff squared
   float cutneighsq_stack[MAX_STACK_TYPES * MAX_STACK_TYPES];
-  int ncalls;          // # of times build has been called
-  int max_totalneigh;  // largest # of neighbors ever stored
+  int ncalls;         // # of times build has been called
+  int max_totalneigh; // largest # of neighbors ever stored
 
-  Buffer<int> numneigh;  // # of neighbors for each atom
-  Image<int> neighbors;  // array of neighbors of each atom
-  int maxneighs;         // max number of neighbors per atom
+  Buffer<int> numneigh; // # of neighbors for each atom
+  Image<int> neighbors; // array of neighbors of each atom
+  int maxneighs;        // max number of neighbors per atom
   int halfneigh;
   int team_neigh_build;
 
@@ -26,30 +26,33 @@ class Neighbor {
   ~Neighbor();
 
   int setup(Stream &stream, Device &device,
-            Atom &);  // setup bins based on box and cutoff
-  void build(Stream &stream, Device &device, Atom &);  // create neighbor list
+            Atom &); // setup bins based on box and cutoff
+  void setup_shader(Device &device, Atom &atom);
+  void build(Stream &stream); // create neighbor list
 
   //   Atom is going to call binatoms etc for sorting
   // void binatoms(Atom &atom, int count = -1); // bin all atoms
 
-  Buffer<int> bincount;  // ptr to 1st atom in each bin
-  Image<int> bins;       // ptr to next atom in each bin
+  Buffer<int> bincount; // ptr to 1st atom in each bin
+  Image<int> bins;      // ptr to next atom in each bin
   Buffer<int> bin_has_local;
   Buffer<int> bin_list;
 
-  int mbins;  // binning parameters
+  int mbins; // binning parameters
   int mbinx, mbiny, mbinz;
   int atoms_per_bin;
   int shared_mem_size;
+  int nmax; // max size of atom arrays in neighbor
 
- private:
-  float xprd, yprd, zprd;  // box size
+  Shader<1> neighbor_init;
 
-  int nmax;    // max size of atom arrays in neighbor
-  int ntypes;  // number of atom types
+private:
+  float xprd, yprd, zprd; // box size
 
-  int nstencil;         // # of bins in stencil
-  Buffer<int> stencil;  // stencil list of bin offsets
+  int ntypes; // number of atom types
+
+  int nstencil;        // # of bins in stencil
+  Buffer<int> stencil; // stencil list of bin offsets
 
   int mbinxlo, mbinylo, mbinzlo;
   int nextx, nexty, nextz;

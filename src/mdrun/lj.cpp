@@ -3,6 +3,7 @@
 
 #include "Integrate.h"
 #include "atom.h"
+#include "comm.h"
 #include "force.h"
 #include "force_lj.h"
 #include "lj.h"
@@ -19,8 +20,10 @@ using namespace luisa;
 using namespace luisa::compute;
 
 int input(In &, const char *);
-
+void output(Stream &stream, Device &device, In &, Atom &, Force *, Neighbor &,
+            Thermo &, Integrate &, int);
 int main(int argc, char **argv) {
+  luisa::log_level_verbose();
   In in;
   in.datafile = NULL;
   int num_steps = -1;   // number of timesteps (if -1 use value from lj.in)
@@ -189,6 +192,7 @@ int main(int argc, char **argv) {
   Neighbor neighbor(device, ntypes);
   Integrate integrate;
   Thermo thermo;
+  Comm comm;
 
   Force *force;
 
@@ -251,18 +255,14 @@ int main(int argc, char **argv) {
                      in.datafile, in.units);
     float volume = atom.box.xlen * atom.box.ylen * atom.box.zlen;
     in.rho = 1.0 * atom.natoms / volume;
-    force->setup();
+    force->setup(stream, device, atom);
 
     if (in.forcetype == FORCEEAM)
       atom.mass = force->mass;
   } else {
     create_box(atom, in.nx, in.ny, in.nz, in.rho);
 
-    neighbor.setup(stream, device, atom);
-
     integrate.setup();
-
-    force->setup();
 
     if (in.forcetype == FORCEEAM)
       atom.mass = force->mass;
@@ -270,7 +270,15 @@ int main(int argc, char **argv) {
     create_atoms(atom, in.nx, in.ny, in.nz, in.rho);
     thermo.setup(stream, device, in.rho, integrate, atom, in.units);
 
-    create_velocity(stream, device, in.t_request, atom, thermo);
+    create_velocity(stream, device, in.t_request, atom, thermo, neighbor,
+                    force);
+    comm.setup(stream, device, neighbor.cutneigh, atom);
+    comm.setup_shaders(device, atom);
+
+    neighbor.setup(stream, device, atom);
+    neighbor.setup_shader(device, atom);
+
+    force->setup(stream, device, atom);
   }
   printf("# Done .... \n");
   fprintf(stdout, "# " VARIANT_STRING " output ...\n");
@@ -301,4 +309,70 @@ int main(int argc, char **argv) {
   // fprintf(stdout, "\t# Sorting frequency: %i\n", integrate.sort_every);
   fprintf(stdout, "\t# Thermo frequency: %i\n", thermo.nstat);
   // fprintf(stdout, "\t# Use intrinsics: %i\n", force->use_sse);
+  fprintf(stdout, "\t# Size of float: %i\n\n", (int)sizeof(float));
+
+  if (sort > 0)
+    atom.sort(neighbor);
+
+  comm.borders(stream);
+
+  force->evflag = 1;
+  neighbor.build(stream);
+
+  force->setup_shader(device, atom, neighbor);
+  atom.setup_shader(device);
+  integrate.setup_shader(device, atom, force);
+
+  force->compute(stream);
+  // std::vector<float> tt(1);
+  // stream << force->eng_vdwl.copy_to(tt.data()) << synchronize();
+  // LUISA_INFO("energy: {}", tt[0]);
+
+  // delete force;
+  // return 0;
+
+  printf("# Starting dynamics ...\n");
+
+  printf("# Timestep T U P Time\n");
+
+  { thermo.compute(stream, 0); }
+  // thermo.output(stream, device);
+  // delete force;
+  // return 0;
+
+  // run the main logic
+
+  integrate.run(stream, atom, force, comm, neighbor, thermo);
+
+  int natoms = atom.nlocal;
+
+  force->evflag = 1;
+
+  force->compute(stream);
+
+  thermo.compute(stream, -1);
+
+  // output thermo!
+  thermo.output(stream, device);
+
+  printf("\n\n");
+  printf("# Performance Summary:\n");
+  printf("# MPI_proc OMP_threads nsteps natoms t_total t_force t_neigh t_comm "
+         "t_other performance perf/thread grep_string t_extra\n");
+  // printf("%i %i %i %i %lf %lf %lf %lf %lf %lf %lf PERF_SUMMARY %lf\n\n\n",
+  //        nprocs, num_threads, integrate.ntimes, natoms,
+  //        timer.array[TIME_TOTAL], timer.array[TIME_FORCE],
+  //        timer.array[TIME_NEIGH], timer.array[TIME_COMM], time_other, 1.0 *
+  //        natoms * integrate.ntimes / timer.array[TIME_TOTAL], 1.0 * natoms *
+  //        integrate.ntimes / timer.array[TIME_TOTAL] / nprocs /
+  //            num_threads,
+  //        timer.array[TIME_TEST]);
+
+  // if (yaml_output)
+  //   output(stream, device, in, atom, force, neighbor, thermo, integrate,
+  //          screen_yaml);
+
+  delete force;
+
+  return 0;
 }

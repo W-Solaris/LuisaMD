@@ -14,34 +14,43 @@ public:
   int nstat;
   int ntimes;
   int nlocal;
+  int maxstat;
   Buffer<int> mstat;
   Buffer<int> steparr;
   Buffer<float> tmparr;
   Buffer<float> engarr;
   Buffer<float> prsarr;
 
-  std::vector<int> h_steparr;
-  std::vector<float> h_tmparr;
-  std::vector<float> h_engarr;
-  std::vector<float> h_prsarr;
+  // std::vector<int> h_steparr;
+  // std::vector<float> h_tmparr;
+  // std::vector<float> h_engarr;
+  // std::vector<float> h_prsarr;
 
   Thermo();
   ~Thermo();
   void setup(Stream &stream, Device &device, float, Integrate &integrate,
              Atom &atom, int);
-  void temperature(Stream &stream, Device &device, Atom &);
+  void setup_shader(Device &device, Atom &atom, Neighbor &neighbor,
+                    Force *force);
+
+  void temperature(Stream &stream);
 
   //   float energy(Atom &, Neighbor &, Force *);
 
   //   float pressure(float, Force *);
-  void compute(Stream &stream, Device &device, int, Atom &, Neighbor &,
-               Force *);
+  void compute(Stream &stream, int);
+
+  void output(Stream &stream, Device &device);
 
   Buffer<float3> v;
   float mass;
 
   Buffer<float> t_act; // length = 1
   float t_scale, e_scale, p_scale, dof_boltz, mvv2e;
+
+  Shader<1> reset_shader;
+  Shader<1> temperature_shader;
+  Shader<1, int> e_p_shader;
 
 private:
   float rho;

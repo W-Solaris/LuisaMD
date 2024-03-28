@@ -10,9 +10,10 @@ class ForceLJ : Force {
 public:
   ForceLJ(Stream &stream, Device &device, In &in, int ntypes_);
   virtual ~ForceLJ();
-  void setup();
+  void setup(Stream &, Device &, Atom &);
   // void setup(Stream &stream, Device &device);
-  void compute(Stream &stream, Device &device, Atom &, Neighbor &);
+  void setup_shader(Device &, Atom &, Neighbor &);
+  void compute(Stream &);
 };
 
 #endif

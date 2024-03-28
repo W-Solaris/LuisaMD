@@ -1,13 +1,12 @@
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+
 #include "atom.h"
 #include "integrate.h"
 #include "neighbor.h"
 #include "thermo.h"
 #include "types.h"
-#include <cmath>
-#include <cstdio>
-
-#include <cstdio>
-#include <cstring>
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -28,17 +27,14 @@ void read_lammps_parse_keyword(int first) {
   // eof is set to 1 if any read hits end-of-file
 
   if (!first) {
-    if (fgets(line, MAXLINE, fp) == NULL)
-      eof = 1;
+    if (fgets(line, MAXLINE, fp) == NULL) eof = 1;
   }
 
   while (eof == 0 && strspn(line, " \t\n\r") == strlen(line)) {
-    if (fgets(line, MAXLINE, fp) == NULL)
-      eof = 1;
+    if (fgets(line, MAXLINE, fp) == NULL) eof = 1;
   }
 
-  if (fgets(buffer, MAXLINE, fp) == NULL)
-    eof = 1;
+  if (fgets(buffer, MAXLINE, fp) == NULL) eof = 1;
 
   // if eof, set keyword empty and return
 
@@ -78,7 +74,6 @@ void read_lammps_header(Atom &atom) {
   int ntypes = 0;
 
   while (1) {
-
     if (fgets(line, MAXLINE, fp) == NULL)
       n = 0;
     else
@@ -94,11 +89,9 @@ void read_lammps_header(Atom &atom) {
 
     double xlo, xhi, ylo, yhi, zlo, zhi;
 
-    if ((ptr = strchr(line, '#')))
-      *ptr = '\0';
+    if ((ptr = strchr(line, '#'))) *ptr = '\0';
 
-    if (strspn(line, " \t\n\r") == strlen(line))
-      continue;
+    if (strspn(line, " \t\n\r") == strlen(line)) continue;
 
     // search line for header keyword and set corresponding variable
 
@@ -130,8 +123,7 @@ void read_lammps_header(Atom &atom) {
   read_lammps_parse_keyword(1);
 
   for (n = 0; n < NSECTIONS; n++)
-    if (strcmp(keyword, section_keywords[n]) == 0)
-      break;
+    if (strcmp(keyword, section_keywords[n]) == 0) break;
 
   if (n == NSECTIONS) {
     char str[128];
@@ -189,7 +181,6 @@ int read_lammps_data(Stream &stream, Device &device, Atom &atom,
 
   while (strlen(keyword)) {
     if (strcmp(keyword, "Atoms") == 0) {
-
       atom.nlocal = 0;
 
       int type;
@@ -204,8 +195,7 @@ int read_lammps_data(Stream &stream, Device &device, Atom &atom,
       }
       atomflag = 1;
     } else if (strcmp(keyword, "Velocities") == 0) {
-      if (atomflag == 0)
-        printf("Must read Atoms before Velocities\n");
+      if (atomflag == 0) printf("Must read Atoms before Velocities\n");
 
       int i;
 
@@ -303,12 +293,10 @@ int create_atoms(Atom &atom, int nx, int ny, int nz, double rho) {
     j = oy * subboxdim + sy;
     i = ox * subboxdim + sx;
 
-    if (iflag)
-      continue;
+    if (iflag) continue;
 
     if (((i + j + k) % 2 == 0) && (i >= ilo) && (i <= ihi) && (j >= jlo) &&
         (j <= jhi) && (k >= klo) && (k <= khi)) {
-
       xtmp = 0.5 * alat * i;
       ytmp = 0.5 * alat * j;
       ztmp = 0.5 * alat * k;
@@ -317,18 +305,15 @@ int create_atoms(Atom &atom, int nx, int ny, int nz, double rho) {
           ytmp < atom.box.yhi && ztmp >= atom.box.zlo && ztmp < atom.box.zhi) {
         n = k * (2 * ny) * (2 * nx) + j * (2 * nx) + i + 1;
 
-        for (m = 0; m < 5; m++)
-          random(&n);
+        for (m = 0; m < 5; m++) random(&n);
 
         vx = random(&n);
 
-        for (m = 0; m < 5; m++)
-          random(&n);
+        for (m = 0; m < 5; m++) random(&n);
 
         vy = random(&n);
 
-        for (m = 0; m < 5; m++)
-          random(&n);
+        for (m = 0; m < 5; m++) random(&n);
 
         vz = random(&n);
 
@@ -370,36 +355,25 @@ int create_atoms(Atom &atom, int nx, int ny, int nz, double rho) {
 /* adjust initial velocities to give desired temperature */
 
 void create_velocity(Stream &stream, Device &device, float t_request,
-                     Atom &atom, Thermo &thermo) {
-
+                     Atom &atom, Thermo &thermo, Neighbor &neighbor,
+                     Force *force) {
   atom.construct_buf(stream, device);
 
   int i;
 
-  Buffer<float> vtot = device.create_buffer<float>(3); // x, y,z
+  Buffer<float3> vtot = device.create_buffer<float3>(1);  // x, y,z
 
   Kernel1D v_add_kernel = [&]() noexcept {
-    auto i = dispatch_x();
-    vtot->atomic(0).fetch_add(atom.v->read(i)[0]);
-    vtot->atomic(1).fetch_add(atom.v->read(i)[1]);
-    vtot->atomic(2).fetch_add(atom.v->read(i)[2]);
-  };
-  Kernel1D v_average_kernel = [&]() noexcept {
-    auto i = dispatch_x();
+    Float3 tmp = make_float3(0.f);
+    $for(j, atom.nlocal) { tmp += atom.v->read(j); };
     Int natoms_ = atom.natoms;
-    Float3 v_mean;
-    v_mean[0] = vtot->read(0) / natoms_.cast<float>();
-    v_mean[1] = vtot->read(1) / natoms_.cast<float>();
-    v_mean[2] = vtot->read(2) / natoms_.cast<float>();
-    Float v_origin = atom.v->read(i);
-    atom.v->write(i, v_origin - v_mean);
+    tmp /= natoms_.cast<float>();
+    vtot->write(0, tmp);
+    $for(j, atom.nlocal) {
+      Float3 tmpp = atom.v->read(j) - tmp;
+      atom.v->write(j, tmpp);
+    };
   };
-  auto v_add = device.compile(v_add_kernel);
-  auto v_average = device.compile(v_average_kernel);
-  stream << v_add().dispatch(atom.nlocal) << synchronize();
-  stream << v_average().dispatch(atom.nlocal) << synchronize();
-
-  thermo.temperature(stream, device, atom); // compute t_act
 
   Kernel1D v_scale_kernel = [&]() noexcept {
     auto i = dispatch_x();
@@ -407,7 +381,15 @@ void create_velocity(Stream &stream, Device &device, float t_request,
     Float3 v_scaled = atom.v->read(i) * factor;
     atom.v->write(i, v_scaled);
   };
+
+  auto v_add = device.compile(v_add_kernel);
   auto v_scale = device.compile(v_scale_kernel);
+
+  stream << v_add().dispatch(1) << synchronize();
+
+  thermo.setup_shader(device, atom, neighbor, force);
+  thermo.temperature(stream);  // compute t_act
+
   stream << v_scale().dispatch(atom.nlocal) << synchronize();
 }
 
@@ -427,8 +409,7 @@ double random(int *idum) {
   k = (*idum) / IQ;
   *idum = IA * (*idum - k * IQ) - IR * k;
 
-  if (*idum < 0)
-    *idum += IM;
+  if (*idum < 0) *idum += IM;
 
   ans = AM * (*idum);
   return ans;
